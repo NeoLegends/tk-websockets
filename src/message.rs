@@ -204,9 +204,10 @@ pub enum CloseCode {
 #[derive(Clone, Debug)]
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Fragments {
-    first: bool,
+    // optimized field order
     frame: Option<Frame>,
-    size: usize
+    size: usize,
+    first: bool,
 }
 
 /// A websocket frame.
