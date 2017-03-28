@@ -2,7 +2,6 @@ use std::io::{Error, ErrorKind, Write};
 use std::str::{self, Utf8Error};
 use std::u16;
 
-use bit_field::BitField;
 use bytes::{BigEndian, Buf, BufMut, BytesMut, IntoBuf};
 use nom::{self, IResult};
 use rand;
@@ -540,25 +539,25 @@ impl Frame {
     /// Masking must occur when the packet is transferred from the client
     /// to the server.
     pub fn write<W: Write>(&self, w: &mut W, mask: bool) -> Result<(), Error> {
-        let mut buf = BufMut::with_capacity(10);
+        let mut buf = BytesMut::with_capacity(10);
         let mut meta: u8 = 0;
         if self.is_finished {
             meta |= 0b1000_0000;
         }
         if self.rsv1 {
-            meta |= 0b0100_0000;
+            meta |= 0b100_0000;
         }
         if self.rsv2 {
-            meta |= 0b0010_0000;
+            meta |= 0b10_0000;
         }
         if self.rsv3 {
-            meta |= 0b0001_0000;
+            meta |= 0b1_0000;
         }
         meta |= self.opcode.into();
 
         buf.put_u8(meta);
         meta = 0;
-        
+
         if mask {
             meta |= 0b1000_0000;
         }
@@ -581,61 +580,42 @@ impl Frame {
                 buf.put_u64::<BigEndian>(extra_len as u64);
             }
         }
-        // meta = 0;
-        // meta.set_bit(7, mask);
 
-        // let (len, extra_len) = if self.payload.len() < 126 {
-        //     (self.payload.len() as u8, None)
-        // } else if self.payload.len() <= (u16::MAX as usize) {
-        //     (126, Some(self.payload.len()))
-        // } else {
-        //     (127, Some(self.payload.len()))
-        // };
-        // meta.set_bits(0..7, len);
+        w.write_all(&buf)?;
 
-        // w.write_u8(meta)?;
+        if mask {
+            // We'd like to keep the &self bound for ::write. This means we need to
+            // allocate here, since we cannot modify the internal buffer to apply
+            // the masking.
+            //
+            // To optimize the process a little and in order to avoid allocating
+            // excessive amounts of memory, we're using a 8kb temporary buffer.
+            //
+            // 8kb is also what the stdlib uses in terms of temporary buffer sizes.
 
-        if let Some(extra_len) = extra_len {
-            if extra_len <= (u16::MAX as usize) {
-                w.write_u16::<BigEndian>(extra_len as u16)?;
-            } else {
-                w.write_u64::<BigEndian>(extra_len as u64)?;
+            const BUFFER_SIZE: usize = 8 * 1024;
+
+            let mask: [u8; 4] = rand::random();
+            w.write_all(&mask)?;
+
+            // Don't overallocate
+            let capacity = min!(self.payload.len(), BUFFER_SIZE);
+            let mut buf = Vec::with_capacity(capacity);
+
+            // Since were &self, we could try to use something like rayon here...
+            for ch in (&self.payload[..]).chunks(capacity) {
+                buf.extend_from_slice(ch);
+
+                apply_mask(&mut buf, &mask);
+                w.write_all(&buf)?;
+
+                buf.clear();
             }
+
+            Ok(())
+        } else {
+            w.write_all(&self.payload)
         }
-
-        // if mask {
-        //     // We'd like to keep the &self bound for ::write. This means we need to
-        //     // allocate here, since we cannot modify the internal buffer to apply
-        //     // the masking.
-        //     //
-        //     // To optimize the process a little and in order to avoid allocating
-        //     // excessive amounts of memory, we're using a 8kb temporary buffer.
-        //     //
-        //     // 8kb is also what the stdlib uses in terms of temporary buffer sizes.
-
-        //     const BUFFER_SIZE: usize = 8 * 1024;
-
-        //     let mask: [u8; 4] = rand::random();
-        //     w.write_all(&mask)?;
-
-        //     // Don't overallocate
-        //     let capacity = min!(self.payload.len(), BUFFER_SIZE);
-        //     let mut buf = Vec::with_capacity(capacity);
-
-        //     // Since were &self, we could try to use something like rayon here...
-        //     for ch in (&self.payload[..]).chunks(capacity) {
-        //         buf.extend_from_slice(ch);
-
-        //         apply_mask(&mut buf, &mask);
-        //         w.write_all(&buf)?;
-
-        //         buf.clear();
-        //     }
-
-        //     Ok(())
-        // } else {
-        //     w.write_all(&self.payload)
-        // }
     }
 }
 

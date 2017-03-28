@@ -5,8 +5,6 @@
 #![deny(bad_style, missing_docs)]
 
 extern crate base64;
-extern crate bit_field;
-extern crate byteorder;
 extern crate bytes;
 #[macro_use] extern crate futures;
 #[macro_use] extern crate nom;
