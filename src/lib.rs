@@ -2,6 +2,8 @@
 //!
 //! Built onto the modern [tokio](https://tokio.rs) stack.
 
+#![deny(bad_style, missing_docs)]
+
 extern crate base64;
 extern crate bit_field;
 extern crate byteorder;
