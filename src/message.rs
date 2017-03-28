@@ -204,8 +204,8 @@ pub enum CloseCode {
 #[derive(Clone, Debug)]
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Fragments {
+    first: bool,
     frame: Option<Frame>,
-    index: usize,
     size: usize
 }
 
@@ -311,53 +311,72 @@ impl CloseCode {
     }
 }
 
+impl Fragments {
+    /// Creates a new `Fragments` iterator.
+    ///
+    /// # Panics
+    /// Panics when `size == 0` and `!payload.is_empty()` at the same time.
+    fn new(frame: Frame, size: usize) -> Fragments {
+        assert!(frame.payload.is_empty() || size > 0);
+
+        Fragments {
+            first: true,
+            frame: Some(frame),
+            size: size
+        }
+    }
+}
+
 impl Iterator for Fragments {
     type Item = Frame;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(frame) = self.frame.take() {
-            if frame.payload.len() <= self.size {
+        if let Some(mut frame) = self.frame.take() {
+            // Optimize for the case where the frame is smaller than the given size
+            if frame.payload.len() <= self.size && self.first {
                 return Some(frame);
             }
 
-            unimplemented!()
-            // let idx = self.index;
-            // self.index += 1;
+            let at = min!(self.size, frame.payload.len());
+            let rest = frame.payload.split_off(at);
+            let has_next = rest.len() > 0;
 
-            // let (payload, has_next) = {
-            //     let mut chunks = frame.payload().chunks(self.size).peekable();
-            //     let payload = chunks.nth(idx).expect("Missing chunk!").into();
+            if self.first {
+                self.first = false;
 
-            //     (payload, chunks.peek().is_some())
-            // };
+                self.frame = Some(Frame {
+                    payload: rest,
+                    ..Default::default()
+                });
+                let res =  Some(Frame {
+                    is_finished: false,
+                    opcode: frame.opcode,
+                    payload: frame.payload,
+                    rsv1: frame.rsv1,
+                    rsv2: frame.rsv2,
+                    rsv3: frame.rsv3
+                });
+                res
+            } else if has_next {
+                self.frame = Some(Frame {
+                    payload: rest,
+                    ..Default::default()
+                });
 
-            // if idx == 0 {
-            //     let res = Some(Frame {
-            //         is_finished: false,
-            //         opcode: frame.opcode,
-            //         payload: payload,
-            //         rsv1: frame.rsv1,
-            //         rsv2: frame.rsv2,
-            //         rsv3: frame.rsv3
-            //     });
-            //     self.frame = Some(frame);
-            //     res
-            // } else if has_next {
-            //     self.frame = Some(frame);
-            //     Some(Frame {
-            //         is_finished: false,
-            //         opcode: OpCode::Continue,
-            //         payload: payload,
-            //         ..Default::default()
-            //     })
-            // } else {
-            //     Some(Frame {
-            //         is_finished: true,
-            //         opcode: OpCode::Continue,
-            //         payload: payload,
-            //         ..Default::default()
-            //     })
-            // }
+                Some(Frame {
+                    is_finished: false,
+                    opcode: OpCode::Continue,
+                    payload: frame.payload,
+                    ..Default::default()
+                })
+            } else {
+                Some(Frame {
+                    is_finished: true,
+                    opcode: OpCode::Continue,
+                    payload: frame.payload,
+                    ..Default::default()
+                })
+            }
         } else {
             None
         }
@@ -366,7 +385,7 @@ impl Iterator for Fragments {
     fn size_hint(&self) -> (usize, Option<usize>) {
         let remaining = self.frame
             .as_ref()
-            .map(|f| (f.payload().len() as f64 / self.size as f64).ceil() as usize - self.index)
+            .map(|f| (f.payload.len() as f64 / self.size as f64).ceil() as usize)
             .unwrap_or(0);
 
         (remaining, Some(remaining))
@@ -484,21 +503,10 @@ impl Frame {
     /// to fully transmit. See [the websocket protocol](https://tools.ietf.org/html/rfc6455#section-5.4)
     /// for more information.
     ///
-    /// # Remarks
-    /// Fragmenting copies the data, so it's moderately expensive. The iterator
-    /// is optimized for the case `size <= payload.len()` though. In that case
-    /// no copies are being made.
-    ///
     /// # Panics
     /// Panics when `size == 0` and `!payload.is_empty()` at the same time.
     pub fn fragment(self, size: usize) -> Fragments {
-        assert!(self.payload.is_empty() || size > 0);
-
-        Fragments {
-            frame: Some(self),
-            index: 0,
-            size: size
-        }
+        Fragments::new(self, size)
     }
 
     /// Gets the payload as slice.
