@@ -3,6 +3,7 @@ use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::io::{Error, ErrorKind};
 use std::mem;
 
+use bytes::{BufMut, BytesMut};
 use futures::{Async, AsyncSink, Poll, Sink, StartSend, Stream};
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_io::codec::{FramedRead, FramedWrite};
@@ -332,28 +333,29 @@ impl<R, W> Stream for Transport<R, W>
                 return Err(Error::new(ErrorKind::InvalidData, DATA_FRAME_DURING_FRAGMENTATION));
             }
 
-            let frame_len = frame.payload.len();
-            self.ensure_capacity(frame_len)?;
+            unimplemented!()
+            // let frame_len = frame.payload.len();
+            // self.ensure_capacity(frame_len)?;
 
-            let payload = {
-                let buf_length = self.recv_fragments.iter()
-                    .fold(frame_len, |len, f| len + f.payload.len());
+            // let payload = {
+            //     let buf_length = self.recv_fragments.iter()
+            //         .fold(frame_len, |len, f| len + f.payload.len());
 
-                let mut buf = Vec::with_capacity(buf_length);
-                for buf_frame in self.recv_fragments.iter() {
-                    buf.extend_from_slice(buf_frame.payload());
-                }
-                buf.extend_from_slice(frame.payload());
+            //     let mut buf = BytesMut::with_capacity(buf_length);
+            //     for buf_frame in self.recv_fragments.iter() {
+            //         buf.put(buf_frame.payload);
+            //     }
+            //     buf.put(frame.payload);
 
-                buf
-            };
+            //     buf
+            // };
 
-            let mut first = self.recv_fragments.drain(..)
-                .nth(0)
-                .expect("Missing frame!");
-            first.payload = payload;
+            // let mut first = self.recv_fragments.drain(..)
+            //     .nth(0)
+            //     .expect("Missing frame!");
+            // first.payload = payload;
 
-            Ok(Async::Ready(Some(first)))
+            // Ok(Async::Ready(Some(first)))
         } else {
             match frame.opcode {
                 OpCode::Close => {
@@ -376,7 +378,7 @@ impl<R, W> Stream for Transport<R, W>
                     Ok(Async::Ready(None))
                 },
                 OpCode::Ping => {
-                    let pong = Frame::new_pong(frame.payload);
+                    let pong = Frame::new_pong(frame.payload.to_vec());
                     match self.send_or_buffer(pong) {
                         Err(err) => Err(err),
                         _ => Ok(Async::NotReady)
