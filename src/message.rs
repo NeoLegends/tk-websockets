@@ -396,7 +396,7 @@ impl Frame {
     /// Creates a new closing Frame with a reason.
     ///
     /// # Panics
-    /// Panics if the length of the reason string (in bytes) is > 123.
+    /// Panics if more than 123 bytes of `reason` are given.
     pub fn new_close_with_reason(code: CloseCode, reason: &str) -> Self {
         assert!((reason.as_bytes().len() + 2) <= MAX_CONTROL_FRAME_SIZE, CONTROL_FRAME_PAYLOAD_TOO_LONG);
 
