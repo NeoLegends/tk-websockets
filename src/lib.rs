@@ -17,6 +17,6 @@ mod codec;
 mod message;
 mod transport;
 
-pub use self::codec::Codec;
-pub use self::message::{CloseCode, Frame, OpCode};
-pub use self::transport::Transport;
+pub use codec::*;
+pub use message::*;
+pub use transport::*;
