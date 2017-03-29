@@ -198,7 +198,7 @@ pub enum CloseCode {
     Other(u16),
 }
 
-/// An iterator yields correctly formatted fragments of the given `Frame`.
+/// An iterator that yields correctly formatted fragments of the given `Frame`.
 ///
 /// Created by calling `Frame::fragment(size)`.
 #[derive(Clone, Debug)]
