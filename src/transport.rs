@@ -25,8 +25,8 @@ const FRAGMENTED_CONTROL_FRAME: &'static str = "Received a fragemented control f
 /// trigger an OOM error.
 const MAX_MSG_SIZE_EXCEEDED: &'static str = "Max message size exceeded. Increase the maximum buffer size in the settings or transmit smaller messages";
 
-/// The error message when a send operation is attemped on a closed or closing transport.
-const SEND_ON_CLOSED_TP: &'static str = "Send called on closed or closing transport";
+/// The error message when an operation is attemped on a closed or closing transport.
+const OP_ON_CLOSED_TP: &'static str = "Operation performed on closed or closing transport";
 
 /// A small macro just like `try_ready` but to extract the `Some` value
 /// of a stream.
@@ -200,7 +200,7 @@ impl<R, W> Transport<R, W>
     /// Attempts to send any remaining buffered fragments.
     fn send_remaining(&mut self) -> Poll<(), W::SinkError> {
         if self.state == State::Closed {
-            panic!(SEND_ON_CLOSED_TP);
+            panic!(OP_ON_CLOSED_TP);
         }
 
         // If the fragment send did not succeed, the item is stored in `buffered`.
@@ -216,7 +216,6 @@ impl<R, W> Transport<R, W>
                 Err(err) => return Err(err)
             }
         }
-
 
         // Send remaining fragments, if any.
         if let Some(mut it) = self.remaining.fragments.take() {
@@ -241,7 +240,7 @@ impl<R, W> Transport<R, W>
 
     fn send_or_buffer(&mut self, item: Frame) -> Poll<(), W::SinkError> {
         if self.state == State::Closed {
-            panic!(SEND_ON_CLOSED_TP);
+            panic!(OP_ON_CLOSED_TP);
         }
 
         match self.output.start_send(item)? {
@@ -268,7 +267,7 @@ impl<R, W> Sink for Transport<R, W>
             (State::Open, OpCode::Close) => self.state = State::Closing,
             (State::Closing, OpCode::Close) => {},
             (State::Closing, _) |
-            (State::Closed, _) => return Err(Error::new(ErrorKind::NotConnected, SEND_ON_CLOSED_TP)),
+            (State::Closed, _) => return Err(Error::new(ErrorKind::NotConnected, OP_ON_CLOSED_TP)),
             _ => {}
         }
 
@@ -311,7 +310,7 @@ impl<R, W> Stream for Transport<R, W>
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         if self.state == State::Closed {
-            return Ok(Async::Ready(None));
+            return Err(Error::new(ErrorKind::NotConnected, OP_ON_CLOSED_TP));
         }
 
         let frame = try_stream_ready!(self.input.poll());
