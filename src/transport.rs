@@ -235,8 +235,7 @@ impl<R, W> Transport<R, W>
             }
         }
 
-        self.output.poll_complete()?;
-        Ok(Async::Ready(()))
+        self.output.poll_complete()
     }
 
     fn send_or_buffer(&mut self, item: Frame) -> Poll<(), W::SinkError> {
