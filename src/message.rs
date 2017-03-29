@@ -2,8 +2,7 @@ use std::io::{Error, ErrorKind, Write};
 use std::str::{self, Utf8Error};
 use std::u16;
 
-use bit_field::BitField;
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use bytes::{BigEndian, Buf, BufMut, BytesMut, IntoBuf};
 use nom::{self, IResult};
 use rand;
 
@@ -55,7 +54,7 @@ fn parse_frame(data: &[u8], max_frame_size: usize) -> IResult<&[u8], Frame> {
             is_finished: header.0,
             opcode: header.4,
             payload: {
-                let mut p = payload.to_owned();
+                let mut p: BytesMut = payload.to_owned().into();
                 if let Some(mask) = mask {
                     apply_mask(&mut p, mask);
                 }
@@ -205,9 +204,10 @@ pub enum CloseCode {
 #[derive(Clone, Debug)]
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Fragments {
+    // optimized field order
     frame: Option<Frame>,
-    index: usize,
-    size: usize
+    size: usize,
+    first: bool,
 }
 
 /// A websocket frame.
@@ -222,7 +222,7 @@ pub struct Frame {
     /// The payload is automatically unmasked during parsing and will
     /// automatically be masked during encoding. Do not do the masking
     /// yourself.
-    pub payload: Vec<u8>,
+    pub payload: BytesMut,
 
     /// Indicates whether the frame is finished.
     ///
@@ -312,49 +312,69 @@ impl CloseCode {
     }
 }
 
+impl Fragments {
+    /// Creates a new `Fragments` iterator.
+    ///
+    /// # Panics
+    /// Panics when `size == 0` and `!payload.is_empty()` at the same time.
+    fn new(frame: Frame, size: usize) -> Fragments {
+        assert!(frame.payload.is_empty() || size > 0);
+
+        Fragments {
+            first: true,
+            frame: Some(frame),
+            size: size
+        }
+    }
+}
+
 impl Iterator for Fragments {
     type Item = Frame;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(frame) = self.frame.take() {
-            if frame.payload.len() <= self.size {
+        if let Some(mut frame) = self.frame.take() {
+            // Optimize for the case where the frame is smaller than the given size
+            if frame.payload.len() <= self.size && self.first {
                 return Some(frame);
             }
 
-            let idx = self.index;
-            self.index += 1;
+            let at = min!(self.size, frame.payload.len());
+            let rest = frame.payload.split_off(at);
+            let has_next = rest.len() > 0;
 
-            let (payload, has_next) = {
-                let mut chunks = frame.payload().chunks(self.size).peekable();
-                let payload = chunks.nth(idx).expect("Missing chunk!").into();
+            if self.first {
+                self.first = false;
 
-                (payload, chunks.peek().is_some())
-            };
-
-            if idx == 0 {
-                let res = Some(Frame {
+                self.frame = Some(Frame {
+                    payload: rest,
+                    ..Default::default()
+                });
+                let res =  Some(Frame {
                     is_finished: false,
                     opcode: frame.opcode,
-                    payload: payload,
+                    payload: frame.payload,
                     rsv1: frame.rsv1,
                     rsv2: frame.rsv2,
                     rsv3: frame.rsv3
                 });
-                self.frame = Some(frame);
                 res
             } else if has_next {
-                self.frame = Some(frame);
+                self.frame = Some(Frame {
+                    payload: rest,
+                    ..Default::default()
+                });
+
                 Some(Frame {
                     is_finished: false,
                     opcode: OpCode::Continue,
-                    payload: payload,
+                    payload: frame.payload,
                     ..Default::default()
                 })
             } else {
                 Some(Frame {
                     is_finished: true,
                     opcode: OpCode::Continue,
-                    payload: payload,
+                    payload: frame.payload,
                     ..Default::default()
                 })
             }
@@ -366,7 +386,7 @@ impl Iterator for Fragments {
     fn size_hint(&self) -> (usize, Option<usize>) {
         let remaining = self.frame
             .as_ref()
-            .map(|f| (f.payload().len() as f64 / self.size as f64).ceil() as usize - self.index)
+            .map(|f| (f.payload.len() as f64 / self.size as f64).ceil() as usize)
             .unwrap_or(0);
 
         (remaining, Some(remaining))
@@ -380,7 +400,7 @@ impl Frame {
     pub fn new_binary(data: Vec<u8>) -> Self {
         Frame {
             opcode: OpCode::Binary,
-            payload: data,
+            payload: data.into(),
             ..Default::default()
         }
     }
@@ -400,10 +420,10 @@ impl Frame {
     pub fn new_close_with_reason(code: CloseCode, reason: &str) -> Self {
         assert!((reason.as_bytes().len() + 2) <= MAX_CONTROL_FRAME_SIZE, CONTROL_FRAME_PAYLOAD_TOO_LONG);
 
-        let mut payload = Vec::with_capacity(reason.len() + 2);
+        let mut payload = BytesMut::with_capacity(reason.len() + 2);
 
-        payload.write_u16::<BigEndian>(code.into()).unwrap();
-        payload.extend_from_slice(reason.as_bytes());
+        payload.put_u16::<BigEndian>(code.into());
+        payload.put_slice(reason.as_bytes());
 
         Frame {
             opcode: OpCode::Close,
@@ -421,7 +441,7 @@ impl Frame {
 
         Frame {
             opcode: OpCode::Ping,
-            payload: data,
+            payload: data.into(),
             ..Default::default()
         }
     }
@@ -436,7 +456,7 @@ impl Frame {
 
         Frame {
             opcode: OpCode::Pong,
-            payload: data,
+            payload: data.into(),
             ..Default::default()
         }
     }
@@ -445,7 +465,7 @@ impl Frame {
     pub fn new_text(data: String) -> Self {
         Frame {
             opcode: OpCode::Text,
-            payload: data.into_bytes(),
+            payload: data.into_bytes().into(),
             ..Default::default()
         }
     }
@@ -484,21 +504,10 @@ impl Frame {
     /// to fully transmit. See [the websocket protocol](https://tools.ietf.org/html/rfc6455#section-5.4)
     /// for more information.
     ///
-    /// # Remarks
-    /// Fragmenting copies the data, so it's moderately expensive. The iterator
-    /// is optimized for the case `size <= payload.len()` though. In that case
-    /// no copies are being made.
-    ///
     /// # Panics
     /// Panics when `size == 0` and `!payload.is_empty()` at the same time.
     pub fn fragment(self, size: usize) -> Fragments {
-        assert!(self.payload.is_empty() || size > 0);
-
-        Fragments {
-            frame: Some(self),
-            index: 0,
-            size: size
-        }
+        Fragments::new(self, size)
     }
 
     /// Gets the payload as slice.
@@ -515,11 +524,14 @@ impl Frame {
     ///
     /// Note: this only works on packets of type `OpCode::Close`.
     pub fn read_close_code(&self) -> Option<CloseCode> {
+        if self.payload.len() < 2 {
+            return None;
+        }
+
         match self.opcode {
             OpCode::Close => {
-                self.payload().read_u16::<BigEndian>()
-                    .and_then(CloseCode::parse)
-                    .ok()
+                let mut buf = self.payload.as_ref().into_buf();
+                CloseCode::parse(buf.get_u16::<BigEndian>()).ok()
             },
             _ => None
         }
@@ -536,17 +548,28 @@ impl Frame {
     /// Masking must occur when the packet is transferred from the client
     /// to the server.
     pub fn write<W: Write>(&self, w: &mut W, mask: bool) -> Result<(), Error> {
+        let mut buf = BytesMut::with_capacity(10);
         let mut meta: u8 = 0;
-        meta.set_bit(7, self.is_finished);
-        meta.set_bit(6, self.rsv1);
-        meta.set_bit(5, self.rsv2);
-        meta.set_bit(4, self.rsv3);
-        meta.set_bits(0..4, self.opcode.into());
+        if self.is_finished {
+            meta |= 0b1000_0000;
+        }
+        if self.rsv1 {
+            meta |= 0b100_0000;
+        }
+        if self.rsv2 {
+            meta |= 0b10_0000;
+        }
+        if self.rsv3 {
+            meta |= 0b1_0000;
+        }
+        meta |= self.opcode.into();
 
-        w.write_u8(meta)?;
-
+        buf.put_u8(meta);
         meta = 0;
-        meta.set_bit(7, mask);
+
+        if mask {
+            meta |= 0b1000_0000;
+        }
 
         let (len, extra_len) = if self.payload.len() < 126 {
             (self.payload.len() as u8, None)
@@ -555,17 +578,19 @@ impl Frame {
         } else {
             (127, Some(self.payload.len()))
         };
-        meta.set_bits(0..7, len);
 
-        w.write_u8(meta)?;
+        meta |= len;
+        buf.put_u8(meta);
 
         if let Some(extra_len) = extra_len {
             if extra_len <= (u16::MAX as usize) {
-                w.write_u16::<BigEndian>(extra_len as u16)?;
+                buf.put_u16::<BigEndian>(extra_len as u16);
             } else {
-                w.write_u64::<BigEndian>(extra_len as u64)?;
+                buf.put_u64::<BigEndian>(extra_len as u64);
             }
         }
+
+        w.write_all(&buf)?;
 
         if mask {
             // We'd like to keep the &self bound for ::write. This means we need to
@@ -608,7 +633,7 @@ impl Default for Frame {
         Frame {
             is_finished: true,
             opcode: OpCode::Close,
-            payload: Vec::new(),
+            payload: Vec::new().into(),
             rsv1: false,
             rsv2: false,
             rsv3: false
@@ -894,7 +919,7 @@ mod tests {
             rsv2: false,
             rsv3: false,
             opcode: OpCode::Binary,
-            payload: vec![0u8, 1, 2, 3, 4, 5]
+            payload: vec![0u8, 1, 2, 3, 4, 5].into()
         };
 
         let mut buf = Vec::new();
@@ -917,7 +942,7 @@ mod tests {
             rsv2: true,
             rsv3: false,
             opcode: OpCode::Binary,
-            payload: repeat(0u8).take(8192).collect::<Vec<_>>()
+            payload: repeat(0u8).take(8192).collect::<Vec<_>>().into()
         };
 
         let mut buf = Vec::new();
@@ -940,7 +965,7 @@ mod tests {
             rsv2: false,
             rsv3: true,
             opcode: OpCode::Binary,
-            payload: repeat(0u8).take(128000).collect::<Vec<_>>()
+            payload: repeat(0u8).take(128000).collect::<Vec<_>>().into()
         };
 
         let mut buf = Vec::new();
