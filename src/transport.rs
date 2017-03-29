@@ -333,29 +333,34 @@ impl<R, W> Stream for Transport<R, W>
                 return Err(Error::new(ErrorKind::InvalidData, DATA_FRAME_DURING_FRAGMENTATION));
             }
 
-            unimplemented!()
-            // let frame_len = frame.payload.len();
-            // self.ensure_capacity(frame_len)?;
+            let frame_len = frame.payload.len();
+            self.ensure_capacity(frame_len)?;
 
-            // let payload = {
-            //     let buf_length = self.recv_fragments.iter()
-            //         .fold(frame_len, |len, f| len + f.payload.len());
+            let (rsv1, rsv2, rsv3, opcode) = {
+                let first = &self.recv_fragments[0];
+                (first.rsv1, first.rsv2, first.rsv3, first.opcode)
+            };
+            let payload = {
+                let buf_length = self.recv_fragments.iter()
+                    .fold(frame_len, |len, f| len + f.payload.len());
 
-            //     let mut buf = BytesMut::with_capacity(buf_length);
-            //     for buf_frame in self.recv_fragments.iter() {
-            //         buf.put(buf_frame.payload);
-            //     }
-            //     buf.put(frame.payload);
+                let mut buf = BytesMut::with_capacity(buf_length);
+                for buf_frame in self.recv_fragments.drain(..) {
+                    buf.put(buf_frame.payload);
+                }
+                buf.put(frame.payload);
 
-            //     buf
-            // };
+                buf
+            };
 
-            // let mut first = self.recv_fragments.drain(..)
-            //     .nth(0)
-            //     .expect("Missing frame!");
-            // first.payload = payload;
-
-            // Ok(Async::Ready(Some(first)))
+            Ok(Async::Ready(Some(Frame {
+                is_finished: true,
+                opcode: opcode,
+                payload: payload,
+                rsv1: rsv1,
+                rsv2: rsv2,
+                rsv3: rsv3
+            })))
         } else {
             match frame.opcode {
                 OpCode::Close => {
