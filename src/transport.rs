@@ -52,7 +52,7 @@ pub struct Settings {
     /// The maximum size of outgoing frames. Frames larger than this will
     /// be fragmented.
     ///
-    /// Default: 32k
+    /// Default: 64k
     pub fragment_size: usize,
 
     /// The maximum amount of data a websocket message can take up.
@@ -108,7 +108,7 @@ impl Default for Settings {
         Settings {
             fragments_buf_size: 8,
             max_message_size: 1024 * 1024 * 16,
-            fragment_size: 1024 * 32
+            fragment_size: u16::max_value() as usize
         }
     }
 }
