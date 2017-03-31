@@ -340,42 +340,35 @@ impl Iterator for Fragments {
             }
 
             let at = min!(self.size, frame.payload.len());
-            let rest = frame.payload.split_off(at);
-            let has_next = rest.len() > 0;
+            let payload = frame.payload.split_to(at);
+            let has_next = frame.payload.len() > 0;
 
             if self.first {
                 self.first = false;
 
-                self.frame = Some(Frame {
-                    payload: rest,
-                    ..Default::default()
-                });
                 let res =  Some(Frame {
                     is_finished: false,
                     opcode: frame.opcode,
-                    payload: frame.payload,
+                    payload: payload,
                     rsv1: frame.rsv1,
                     rsv2: frame.rsv2,
                     rsv3: frame.rsv3
                 });
+                self.frame = Some(frame);
                 res
             } else if has_next {
-                self.frame = Some(Frame {
-                    payload: rest,
-                    ..Default::default()
-                });
-
+                self.frame = Some(frame);
                 Some(Frame {
                     is_finished: false,
                     opcode: OpCode::Continue,
-                    payload: frame.payload,
+                    payload: payload,
                     ..Default::default()
                 })
             } else {
                 Some(Frame {
                     is_finished: true,
                     opcode: OpCode::Continue,
-                    payload: frame.payload,
+                    payload: payload,
                     ..Default::default()
                 })
             }
