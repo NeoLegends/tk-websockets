@@ -37,9 +37,10 @@ macro_rules! min {
 fn apply_mask(data: &mut [u8], mask: &[u8]) {
     assert!(mask.len() == 4);
 
-    let zipped = data.iter_mut().zip(mask.iter().cycle());
-    for (byte, &mask) in zipped {
-        *byte ^= mask;
+    // Iterators proved to be 3x slower :/
+    let len = mask.len();
+    for (i, byte) in data.iter_mut().enumerate() {
+        *byte ^= mask[i % len];
     }
 }
 
