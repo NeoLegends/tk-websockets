@@ -392,7 +392,10 @@ impl<R, W> Stream for Transport<R, W>
             Closed => return Err(Error::new(ErrorKind::NotConnected, OP_ON_CLOSED_TP))
         };
 
-        if !frame.is_finished {
+        if frame.has_rsv() {
+            self.close(CloseCode::Protocol);
+            return Ok(Async::NotReady);
+        } else if !frame.is_finished {
             if frame.opcode.is_control() {
                 self.close(CloseCode::Protocol);
                 return Ok(Async::NotReady);

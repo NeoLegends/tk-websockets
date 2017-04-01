@@ -504,6 +504,11 @@ impl Frame {
         Fragments::new(self, size)
     }
 
+    /// Returns whether any of the reserved bits are set.
+    pub fn has_rsv(&self) -> bool {
+        self.rsv1 || self.rsv2 || self.rsv3
+    }
+
     /// Gets the payload as slice.
     pub fn payload(&self) -> &[u8] {
         self.payload.as_ref()
