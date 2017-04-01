@@ -202,7 +202,7 @@ pub enum CloseCode {
 /// An iterator that yields correctly formatted fragments of the given `Frame`.
 ///
 /// Created by calling `Frame::fragment(size)`.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Fragments {
     // optimized field order
