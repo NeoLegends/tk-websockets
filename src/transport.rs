@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{self, Debug, Formatter};
 use std::io::{Error, ErrorKind};
 use std::mem;
 
@@ -143,6 +143,15 @@ impl<R: Stream, W: Sink> Transport<R, W> {
         let write = FramedWrite::new(write, codec);
 
         Transport::from_stream_settings(read, write, settings)
+    }
+}
+
+impl<R: Debug, W: Debug> Debug for Transport<R, W> {
+    fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
+        fmt.debug_struct("Transport")
+            .field("settings", &self.settings)
+            .field("state", &self.state)
+            .finish()
     }
 }
 
@@ -466,6 +475,26 @@ impl<R, W> Stream for Transport<R, W>
                     }
                 },
                 _ => Ok(Async::Ready(Some(frame)))
+            }
+        }
+    }
+}
+
+impl<R: Debug, W: Debug> Debug for State<R, W> {
+    fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
+        match *self {
+            State::Open(ref r, ref w, ref fgmts, ref rem) => {
+                fmt.debug_tuple("Open")
+                    .field(r)
+                    .field(w)
+                    .field(fgmts)
+                    .field(rem)
+                    .finish()
+            },
+            State::Closing(_) |
+            State::Closed => {
+                fmt.debug_tuple("Closing")
+                    .finish()
             }
         }
     }
