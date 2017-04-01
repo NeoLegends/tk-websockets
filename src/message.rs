@@ -37,10 +37,9 @@ macro_rules! min {
 fn apply_mask(data: &mut [u8], mask: &[u8]) {
     assert!(mask.len() == 4);
 
-    // Iterators proved to be 3x slower :/
     let len = mask.len();
     for (i, byte) in data.iter_mut().enumerate() {
-        *byte ^= mask[i % len];
+        *byte ^= mask[i % len]; // Iterators proved to be 3x slower :/
     }
 }
 

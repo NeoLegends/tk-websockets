@@ -306,9 +306,9 @@ impl<R, W> Sink for Transport<R, W>
             },
             OpCode::Continue => Err(Error::new(ErrorKind::InvalidData, CONTINUE_FRAME_SENT)),
             _ => {
+                // Always send control frames since they can be interleaved
+                // with fragmented messages.
                 if item.opcode.is_control() {
-                    // Always send control frames since they can be interleaved
-                    // with fragmented messages.
                     return self.state.output_mut().start_send(item);
                 }
 
