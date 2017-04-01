@@ -18,17 +18,6 @@ const CONTINUE_FRAME_SENT: &'static str = "Sending CONTINUE frames directly is n
 const MISSING_STATE: &'static str = "Missing transport state. This is a bug. Please contact the authors of tk-websocket.";
 const OP_ON_CLOSED_TP: &'static str = "Operation performed on closed or closing transport";
 
-macro_rules! open_mut {
-    (($i:ident, $o:ident, $recv:ident, $rem:ident) => $body:expr) => ({
-        use $crate::transport::State::*;
-
-        match self.state.as_mut().expect(MISSING_STATE) {
-            Open(ref mut $i, ref mut $o, ref mut $recv, ref mut $rem) => $body,
-            _ => panic!(OP_ON_CLOSED_TP)
-        }
-    })
-}
-
 /// A small macro just like `try_ready` but to extract the `Some` value
 /// of a stream.
 macro_rules! try_stream_ready {
