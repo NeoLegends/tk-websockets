@@ -470,7 +470,7 @@ impl Frame {
     /// Computes the length of the Frame in encoded form.
     pub fn len(&self, is_masked: bool) -> usize {
         let mut header_length = 2;
-        let payload_len = self.payload().len();
+        let payload_len = self.payload.len();
         if payload_len > 125 {
             if payload_len <= u16::max_value() as usize {
                 header_length += 2;
