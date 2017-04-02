@@ -60,6 +60,12 @@ impl Encoder for Codec {
     type Error = Error;
 
     fn encode(&mut self, msg: Self::Item, buf: &mut BytesMut) -> Result<(), Self::Error> {
+        let frame_len = msg.len(self.is_client);
+        let buf_len = buf.len();
+        if buf_len < frame_len {
+            buf.reserve(frame_len - buf_len);
+        }
+
         msg.write(&mut buf.by_ref().writer(), self.is_client)
     }
 }
@@ -79,6 +85,18 @@ mod tests {
 
         Codec::new(true, usize::MAX).encode(frame, &mut buf).unwrap();
 
+        assert!(buf.len() > 0);
+    }
+
+    #[test]
+    fn write_large() {
+        let frame = Frame::new_text("Hello World abcdefghijklmnop".to_owned());
+        let frame_len = frame.len(true);
+        let mut buf = BytesMut::from(Vec::with_capacity(16));
+
+        Codec::new(true, usize::MAX).encode(frame, &mut buf).unwrap();
+
+        assert!(buf.len() == frame_len);
         assert!(buf.len() > 0);
     }
 
