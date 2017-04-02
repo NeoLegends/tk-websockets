@@ -20,7 +20,6 @@ pub const MAX_CONTROL_FRAME_SIZE: usize = 125;
 const CONTROL_FRAME_PAYLOAD_TOO_LONG: &'static str = "Contents of control frames must not be longer than 125 bytes.";
 
 /// Computes the smaller one of two values.
-#[macro_use]
 macro_rules! min {
     ($a:expr, $b:expr) => ({
         let a = $a;
