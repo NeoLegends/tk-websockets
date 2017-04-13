@@ -164,6 +164,8 @@ impl<R, W> Transport<R, W>
     /// new transport without any extensions, this constructor is simply
     /// passed the `FramedRead` / `FramedWrite`.
     pub fn from_stream_settings(read: R, write: W, settings: Settings) -> Self {
+        assert!(settings.max_message_size > 0);
+
         let recv_buf = Vec::with_capacity(settings.fragments_buf_size);
         let send_buf = VecDeque::with_capacity(settings.fragments_buf_size);
         let remaining = Remaining {
