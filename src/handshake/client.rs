@@ -27,9 +27,9 @@ pub fn connect<T, U>(url: U, io: T, cfg: &Settings) -> Client<T>
     let url = url.into();
     let max_size = cfg.max_message_size;
     let nonce: [u8; 16] = rand::thread_rng().gen();
-    let req = format_http_request(&url, &nonce).into_bytes();
+    let req = format_http_request(&url, &nonce);
 
-    let fut = tk_io::write_all(io, req)
+    let fut = tk_io::write_all(io, req.to_string().into_bytes())
         .and_then(|(io, _)| super::ParseResponse::new(io))
         .and_then(move |(io, res)| {
             if res.code != 101 {
@@ -89,24 +89,31 @@ pub fn connect<T, U>(url: U, io: T, cfg: &Settings) -> Client<T>
 }
 
 /// Creates the HTTP request used to start up a websocket connection.
-fn format_http_request(url: &Url, nonce: &[u8]) -> String {
+fn format_http_request(url: &Url, nonce: &[u8]) -> super::Request {
     assert_eq!(nonce.len(), 16);
 
     let domain = url.host_str().expect("missing domain");
     let path = url.path();
     let enc_nonce = base64::encode(nonce);
 
-    if let Some(port) = url.port() {
-        format!(
-            "GET {} HTTP/1.1\r\nHost: {}:{}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: {}\r\nSec-WebSocket-Version: 13\r\n\r\n",
-            path, domain, port, enc_nonce
-        )
+    let host = if let Some(port) = url.port() {
+        format!("{}:{}", domain, port)
     } else {
-        format!(
-            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: {}\r\nSec-WebSocket-Version: 13\r\n\r\n",
-            path, domain, enc_nonce
-        )
-    }
+        domain.to_owned()
+    };
+
+    let mut req = super::Request {
+        method: "GET".to_owned(),
+        headers: Vec::new(),
+        path: path.to_owned(),
+    };
+    req.add_header("Host", host);
+    req.add_header("Connection", "upgrade".to_owned());
+    req.add_header("Upgrade", "websocket".to_owned());
+    req.add_header("Sec-WebSocket-Version", "13".to_owned());
+    req.add_header("Sec-WebSocket-Key", enc_nonce);
+
+    req
 }
 
 /// Performs the necessary steps to validate that the server has

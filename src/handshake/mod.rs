@@ -1,4 +1,6 @@
+use std::fmt::{self, Display, Formatter};
 use std::io::{Error, ErrorKind};
+use std::str;
 
 use futures::{Async, Future, Poll};
 use httparse::{self, Status};
@@ -166,5 +168,41 @@ impl<T> Future for ParseResponse<T>
                 Err(e) => return Err(Error::new(ErrorKind::InvalidData, e))
             }
         }
+    }
+}
+
+impl Request {
+    pub fn add_header(&mut self, name: &str, val: String) {
+        self.headers.push((name.to_owned(), val.into_bytes()));
+    }
+}
+
+impl Response {
+    pub fn add_header(&mut self, name: &str, val: String) {
+        self.headers.push((name.to_owned(), val.into_bytes()));
+    }
+}
+
+impl Display for Request {
+    fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
+        write!(fmt, "{} {} HTTP/1.1\r\n", self.method, self.path)?;
+        for &(ref name, ref val) in self.headers.iter() {
+            if let Some(val) = str::from_utf8(&val).ok() {
+                write!(fmt, "{}: {}\r\n", name, val)?;
+            }
+        }
+        write!(fmt, "\r\n")
+    }
+}
+
+impl Display for Response {
+    fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
+        write!(fmt, "HTTP/1.1 {}\r\n", self.code)?;
+        for &(ref name, ref val) in self.headers.iter() {
+            if let Some(val) = str::from_utf8(&val).ok() {
+                write!(fmt, "{}: {}\r\n", name, val)?;
+            }
+        }
+        write!(fmt, "\r\n")
     }
 }
