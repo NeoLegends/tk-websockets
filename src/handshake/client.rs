@@ -171,4 +171,16 @@ mod tests {
 
         core.run(fut).expect("failed to connect");
     }
+
+    #[test]
+    fn nonce() {
+        let nonce = [
+            0x64, 0xf0, 0x0c, 0x64,
+            0xd3, 0x15, 0xb2, 0xed,
+            0x16, 0xab, 0x9d, 0x05,
+            0xcc, 0x12, 0x6b, 0x83
+        ];
+
+        assert!(validate_nonce(&nonce, "0V7cSmibitc/ejxMdYNNsfGPd+0="));
+    }
 }
