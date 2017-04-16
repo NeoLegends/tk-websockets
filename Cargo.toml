@@ -3,6 +3,12 @@ authors = ["Moritz Gunz <moritz.gunz@gmail.com>"]
 name = "tk-websockets"
 version = "0.1.0"
 
+categories = ["web-programming::websocket", "web-programming"]
+description = "RFC 6455 compatible WebSocket client and server implementations for tokio."
+documentation = "https://docs.rs/tk-websockets"
+keywords = ["websocket", "tokio", "proto"]
+repository = "https://github.com/NeoLegends/tk-websockets"
+
 [dependencies]
 base64 = "0.4.0"
 bytes = "0.4.1"
