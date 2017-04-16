@@ -203,26 +203,14 @@ pub enum CloseCode {
 #[derive(Debug)]
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Fragments {
-    // optimized field order
+    first: bool,
     frame: Option<Frame>,
     size: usize,
-    first: bool,
 }
 
 /// A websocket frame.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Frame {
-    // This sits up here for better alignment. Compresses the struct down to
-    // 32 bytes instead of 40. Once struct field reordering is stable this will
-    // not be necessary anymore and the fields can be ordered alphabetically.
-
-    /// The payload.
-    ///
-    /// The payload is automatically unmasked during parsing and will
-    /// automatically be masked during encoding. Do not do the masking
-    /// yourself.
-    pub payload: BytesMut,
-
     /// Indicates whether the frame is finished.
     ///
     /// Websocket messages may be split up into multiple frames. If that
@@ -231,6 +219,13 @@ pub struct Frame {
 
     /// The frame's opcode.
     pub opcode: OpCode,
+
+    /// The payload.
+    ///
+    /// The payload is automatically unmasked during parsing and will
+    /// automatically be masked during encoding. Do not do the masking
+    /// yourself.
+    pub payload: BytesMut,
 
     /// The first reserved bit.
     ///
