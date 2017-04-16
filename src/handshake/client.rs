@@ -20,8 +20,8 @@ use transport::Settings;
 /// `Sink` object representing the websocket. It can then be used in turn to
 /// construct a `Transport` that can be bound as client protocol.
 pub fn connect<T, U>(url: U, io: T, cfg: &Settings) -> Client<T>
-    where U: Into<Url>,
-          T: 'static + AsyncRead + AsyncWrite {
+        where U: Into<Url>,
+              T: 'static + AsyncRead + AsyncWrite {
     assert!(cfg.max_message_size > 0);
 
     let url = url.into();
