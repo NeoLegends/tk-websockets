@@ -3,11 +3,16 @@ authors = ["Moritz Gunz <moritz.gunz@gmail.com>"]
 name = "tk-websockets"
 version = "0.1.0"
 
-categories = ["web-programming::websocket", "web-programming"]
+categories = ["asynchronous", "web-programming::websocket"]
 description = "RFC 6455 compatible WebSocket client and server implementations for tokio."
 documentation = "https://docs.rs/tk-websockets"
+homepage = "https://github.com/NeoLegends/tk-websockets"
 keywords = ["websocket", "tokio", "proto"]
+license = "MIT/Apache-2.0"
 repository = "https://github.com/NeoLegends/tk-websockets"
+
+[badges]
+travis-ci = { repository = "NeoLegends/tk-websockets" }
 
 [dependencies]
 base64 = "0.4.0"
