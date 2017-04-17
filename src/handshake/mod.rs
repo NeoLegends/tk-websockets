@@ -1,12 +1,9 @@
-use std::ascii::AsciiExt;
 use std::fmt::{self, Display, Formatter};
 use std::io::{Error, ErrorKind};
 use std::str;
-use std::time::SystemTime;
 
 use futures::{Async, Future, Poll};
 use httparse::{self, Status};
-use httpdate;
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_io::io::{self as tk_io, Read};
 
@@ -219,9 +216,6 @@ impl Display for Response {
             if let Some(val) = str::from_utf8(&val).ok() {
                 write!(fmt, "{}: {}\r\n", name, val)?;
             }
-        }
-        if !self.headers.iter().any(|h| h.0.eq_ignore_ascii_case("Date")) {
-            write!(fmt, "Date: {}\r\n", httpdate::fmt_http_date(SystemTime::now()))?;
         }
         write!(fmt, "\r\n")
     }
