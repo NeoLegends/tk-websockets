@@ -81,9 +81,9 @@ pub fn connect<T, U>(io: T, url: U, cfg: &Settings) -> Client<T>
                 return Err(Error::new(ErrorKind::InvalidData, "Found websocket sub protocols when no protocols were requested."));
             }
 
-            let codec = Codec::new(true, max_size);
-            return Ok(io.framed(codec));
-        });
+            Ok(io)
+        })
+        .map(move |io| io.framed(Codec::new(true, max_size)));
 
     Client(Box::new(fut))
 }
