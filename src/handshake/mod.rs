@@ -1,9 +1,12 @@
+use std::ascii::AsciiExt;
 use std::fmt::{self, Display, Formatter};
 use std::io::{Error, ErrorKind};
 use std::str;
+use std::time::SystemTime;
 
 use futures::{Async, Future, Poll};
 use httparse::{self, Status};
+use httpdate;
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_io::io::{self as tk_io, Read};
 
@@ -181,6 +184,18 @@ impl Response {
     pub fn add_header(&mut self, name: &str, val: String) {
         self.headers.push((name.to_owned(), val.into_bytes()));
     }
+
+    fn reason_phrase(&self) -> &str {
+        match self.code {
+            0...99 => panic!("Invalid HTTP status code"),
+            100 => "Continue",
+            101 => "Switching Protocols",
+            200 => "Ok",
+            400 => "Bad Request",
+            500 => "Internal Server Error",
+            _ => "Unknown"
+        }
+    }
 }
 
 impl Display for Request {
@@ -197,11 +212,14 @@ impl Display for Request {
 
 impl Display for Response {
     fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
-        write!(fmt, "HTTP/1.1 {}\r\n", self.code)?;
+        write!(fmt, "HTTP/1.1 {} {}\r\n", self.code, self.reason_phrase())?;
         for &(ref name, ref val) in self.headers.iter() {
             if let Some(val) = str::from_utf8(&val).ok() {
                 write!(fmt, "{}: {}\r\n", name, val)?;
             }
+        }
+        if !self.headers.iter().any(|h| h.0.eq_ignore_ascii_case("Date")) {
+            write!(fmt, "Date: {}\r\n", httpdate::fmt_http_date(SystemTime::now()))?;
         }
         write!(fmt, "\r\n")
     }
