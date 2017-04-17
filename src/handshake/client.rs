@@ -19,12 +19,10 @@ use transport::Settings;
 /// Returns a future that, when it resolves, contains a combined `Stream` /
 /// `Sink` object representing the websocket. It can then be used in turn to
 /// construct a `Transport` that can be bound as client protocol.
-pub fn connect<T, U>(io: T, url: U, cfg: &Settings) -> Client<T>
-        where U: Into<Url>,
-              T: 'static + AsyncRead + AsyncWrite {
+pub fn connect<T>(io: T, url: &Url, cfg: &Settings) -> Client<T>
+        where T: 'static + AsyncRead + AsyncWrite {
     assert!(cfg.max_message_size > 0);
 
-    let url = url.into();
     let max_size = cfg.max_message_size;
     let nonce: [u8; 16] = rand::thread_rng().gen();
     let req = format_http_request(&url, &nonce);
@@ -170,9 +168,9 @@ mod tests {
             .expect("failed to connect TCP stream");
         let stream = TkTcpStream::from_stream(stream, &core.handle())
             .expect("failed to asyncify stream");
-        let url: Url = "ws://echo.websocket.org".parse().expect("failed to parse url");
+        let url = "ws://echo.websocket.org".parse().expect("failed to parse url");
 
-        let fut = connect(stream, url, &Default::default())
+        let fut = connect(stream, &url, &Default::default())
             .map(|_| ())
             .map_err(|e| println!("Error: {}", e));
 

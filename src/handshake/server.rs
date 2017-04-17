@@ -122,7 +122,6 @@ mod tests {
     use futures::{Future, Stream};
     use tokio_core::net::{TcpListener, TcpStream};
     use tokio_core::reactor::Core;
-    use url::Url;
 
     #[test]
     fn nonce() {
@@ -151,9 +150,9 @@ mod tests {
 
         handle.spawn(srv);
 
-        let url: Url = "ws://localhost:12343".parse().unwrap();
+        let url = "ws://localhost:12343".parse().unwrap();
         let fut = TcpStream::connect(&local_ip, &handle)
-            .and_then(|sock| ::handshake::connect(sock, url, &Default::default()))
+            .and_then(|sock| ::handshake::connect(sock, &url, &Default::default()))
             .map(|_| *confirm.lock().unwrap() = true);
 
         core.run(fut).expect("failed to connect");
