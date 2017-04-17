@@ -19,7 +19,7 @@ use transport::Settings;
 /// Returns a future that, when it resolves, contains a combined `Stream` /
 /// `Sink` object representing the websocket. It can then be used in turn to
 /// construct a `Transport` that can be bound as client protocol.
-pub fn connect<T, U>(url: U, io: T, cfg: &Settings) -> Client<T>
+pub fn connect<T, U>(io: T, url: U, cfg: &Settings) -> Client<T>
         where U: Into<Url>,
               T: 'static + AsyncRead + AsyncWrite {
     assert!(cfg.max_message_size > 0);
@@ -172,7 +172,7 @@ mod tests {
             .expect("failed to asyncify stream");
         let url: Url = "ws://echo.websocket.org".parse().expect("failed to parse url");
 
-        let fut = connect(url, stream, &Default::default())
+        let fut = connect(stream, url, &Default::default())
             .map(|_| ())
             .map_err(|e| println!("Error: {}", e));
 
