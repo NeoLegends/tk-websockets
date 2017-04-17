@@ -8,6 +8,7 @@ extern crate base64;
 extern crate bytes;
 #[macro_use] extern crate futures;
 extern crate httparse;
+extern crate httpdate;
 #[macro_use] extern crate nom;
 extern crate rand;
 extern crate sha1;
