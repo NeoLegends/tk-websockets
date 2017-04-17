@@ -7,16 +7,23 @@
 extern crate base64;
 extern crate bytes;
 #[macro_use] extern crate futures;
+extern crate httparse;
+extern crate httpdate;
 #[macro_use] extern crate nom;
 extern crate rand;
 extern crate sha1;
 extern crate tokio_io;
 extern crate tokio_proto;
+extern crate url;
+
+#[cfg(test)] extern crate tokio_core;
 
 mod codec;
+mod handshake;
 mod message;
 mod transport;
 
 pub use codec::*;
+pub use handshake::*;
 pub use message::*;
 pub use transport::*;
