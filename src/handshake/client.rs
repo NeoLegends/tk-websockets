@@ -164,7 +164,7 @@ mod tests {
     use tokio_core::reactor::Core;
 
     #[test]
-    fn smoke() {
+    fn smoke_remote() {
         let mut core = Core::new().expect("failed to create reactor");
         let stream = TcpStream::connect("echo.websocket.org:80")
             .expect("failed to connect TCP stream");
