@@ -5,6 +5,10 @@ rust:
   - nightly
 sudo: false
 
+os:
+  - linux
+  - osx
+
 matrix:
   allow_failures:
     - rust: nightly
