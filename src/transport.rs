@@ -210,7 +210,6 @@ impl<R, W> Transport<R, W>
         self.state = Some(State::Closing(Box::new(fut)));
     }
 
-
     /// Checks whether the given additional capacity can be allocated and
     /// closes the websocket connection if not.
     fn has_capacity_for(&mut self, additional_size: usize) -> bool {
