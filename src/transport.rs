@@ -419,11 +419,17 @@ impl<R, W> Stream for Transport<R, W>
                 return Ok(Async::NotReady);
             }
 
-            let mut recv_fgmts = self.state.recv_fgmts_mut();
             let (rsv1, rsv2, rsv3, opcode) = {
-                let first = &recv_fgmts[0];
+                let first = &self.state.recv_fgmts()[0];
                 (first.rsv1, first.rsv2, first.rsv3, first.opcode)
             };
+
+            if rsv1 || rsv1 || rsv3 {
+                self.close(CloseCode::Extension);
+                return Ok(Async::NotReady);
+            }
+
+            let mut recv_fgmts = self.state.recv_fgmts_mut();
             let payload = {
                 let buf_length = recv_fgmts.iter()
                     .fold(frame_len, |len, f| len + f.payload.len());
