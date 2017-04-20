@@ -213,7 +213,7 @@ impl<R, W> Transport<R, W>
 
     /// Checks whether the given additional capacity can be allocated and
     /// closes the websocket connection if not.
-    fn ensure_capacity(&mut self, additional_size: usize) -> bool {
+    fn has_capacity_for(&mut self, additional_size: usize) -> bool {
         let recv_fragments = self.state.recv_fgmts();
         let current_buf_size: usize = recv_fragments.iter()
             .map(|f| f.payload.len())
@@ -401,7 +401,7 @@ impl<R, W> Stream for Transport<R, W>
                 return Ok(Async::NotReady);
             }
 
-            if !self.ensure_capacity(frame.payload.len()) {
+            if !self.has_capacity_for(frame.payload.len()) {
                 self.close(CloseCode::Size);
                 return Ok(Async::NotReady);
             }
@@ -415,7 +415,7 @@ impl<R, W> Stream for Transport<R, W>
             }
 
             let frame_len = frame.payload.len();
-            if !self.ensure_capacity(frame_len) {
+            if !self.has_capacity_for(frame_len) {
                 self.close(CloseCode::Size);
                 return Ok(Async::NotReady);
             }
