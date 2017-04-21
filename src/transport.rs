@@ -9,7 +9,7 @@ use futures::{
     Future, Sink, Stream
 };
 use tokio_io::{AsyncRead, AsyncWrite};
-use tokio_io::codec::{FramedRead, FramedWrite};
+use tokio_io::codec::Framed;
 
 use codec::Codec;
 use message::{CloseCode, Fragments, Frame, OpCode};
@@ -64,9 +64,9 @@ pub struct Settings {
 }
 
 /// The WebSocket transport implementation.
-pub struct Transport<R, W> {
+pub struct Transport<T> {
     settings: Settings,
-    state: Option<State<R, W>>,
+    state: Option<State<T>>,
 }
 
 /// Fragments waiting to be sent to the other side.
@@ -77,12 +77,12 @@ struct Remaining {
 }
 
 /// The inner state of the websocket transport.
-enum State<R, W> {
+enum State<T> {
     /// The websocket is in the OPEN state.
     ///
     /// The tuple layout is to be read as following:
     /// (Reader, Writer, Incoming buffered fragments, Fragments waiting to be sent)
-    Open(R, W, Vec<Frame>, Remaining),
+    Open(T, Vec<Frame>, Remaining),
 
     /// The websocket is currently closing.
     Closing(Box<Future<Item = (), Error = Error>>),
@@ -91,10 +91,10 @@ enum State<R, W> {
     Closed,
 }
 
-trait TransportState<R, W> {
-    fn into_io(&mut self) -> (R, W);
+trait TransportState<T> {
+    fn into_io(&mut self) -> T;
 
-    fn output_mut(&mut self) -> &mut W;
+    fn io_mut(&mut self) -> &mut T;
 
     fn recv_fgmts(&self) -> &[Frame];
 
@@ -113,29 +113,23 @@ impl Default for Settings {
     }
 }
 
-impl<R: Stream, W: Sink> Transport<R, W> {
+impl<T: Stream + Sink> Transport<T> {
     /// Creates a new `Transport` from the given IO primitives with default settings.
-    pub fn new<In, Out>(read: In, write: Out, is_client: bool)
-            -> Transport<FramedRead<In, Codec>, FramedWrite<Out, Codec>>
-            where In: 'static + AsyncRead,
-                  Out: 'static + AsyncWrite {
-        Self::new_with_settings(read, write, is_client, Default::default())
+    pub fn new<I>(io: I, is_client: bool) -> Transport<Framed<I, Codec>>
+            where I: 'static + AsyncRead + AsyncWrite {
+        Self::new_with_settings(io, is_client, Default::default())
     }
 
     /// Creates a new `Transport` from the given IO primitives with the given settings.
-    pub fn new_with_settings<In, Out>(read: In, write: Out, is_client: bool, settings: Settings)
-            -> Transport<FramedRead<In, Codec>, FramedWrite<Out, Codec>>
-            where In: 'static + AsyncRead,
-                  Out: 'static + AsyncWrite {
+    pub fn new_with_settings<I>(io: I, is_client: bool, settings: Settings)
+            -> Transport<Framed<I, Codec>>
+            where I: 'static + AsyncRead + AsyncWrite {
         let codec = Codec::new(is_client, settings.max_message_size);
-        let read = FramedRead::new(read, codec);
-        let write = FramedWrite::new(write, codec);
-
-        Transport::from_stream_settings(read, write, settings)
+        Transport::from_stream_settings(io.framed(codec), settings)
     }
 }
 
-impl<R: Debug, W: Debug> Debug for Transport<R, W> {
+impl<T: Debug> Debug for Transport<T> {
     fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
         fmt.debug_struct("Transport")
             .field("settings", &self.settings)
@@ -144,17 +138,18 @@ impl<R: Debug, W: Debug> Debug for Transport<R, W> {
     }
 }
 
-impl<R, W> Transport<R, W>
-    where R: 'static + Stream<Item = Frame, Error = Error>,
-          W: 'static + Sink<SinkItem = Frame, SinkError = Error> {
+impl<T> Transport<T>
+    where T: 'static +
+             Stream<Item = Frame, Error = Error> +
+             Sink<SinkItem = Frame, SinkError = Error> {
     /// Creates a new `Transport` from the given stream and sink.
     ///
     /// This constructor can be used to very naturally compose custom
     /// extension stacks in front of the `Transport`. When creating a
     /// new transport without any extensions, this constructor is simply
     /// passed the `FramedRead` / `FramedWrite`.
-    pub fn from_stream(read: R, write: W) -> Self {
-        Self::from_stream_settings(read, write, Default::default())
+    pub fn from_stream(io: T) -> Self {
+        Self::from_stream_settings(io, Default::default())
     }
 
     /// Creates a new `Transport` from the given stream and sink and settings.
@@ -163,7 +158,7 @@ impl<R, W> Transport<R, W>
     /// extension stacks in front of the `Transport`. When creating a
     /// new transport without any extensions, this constructor is simply
     /// passed the `FramedRead` / `FramedWrite`.
-    pub fn from_stream_settings(read: R, write: W, settings: Settings) -> Self {
+    pub fn from_stream_settings(io: T, settings: Settings) -> Self {
         assert!(settings.max_message_size > 0);
 
         let recv_buf = Vec::with_capacity(settings.fragments_buf_size);
@@ -175,7 +170,7 @@ impl<R, W> Transport<R, W>
 
         Transport {
             settings: settings,
-            state: Some(State::Open(read, write, recv_buf, remaining))
+            state: Some(State::Open(io, recv_buf, remaining))
         }
     }
 
@@ -196,12 +191,12 @@ impl<R, W> Transport<R, W>
             panic!("Close called without close frame.");
         }
 
-        let (input, output) = self.state.into_io();
         // TODO: Timeout
-        let fut = output.send(f)
+        let fut = self.state.into_io()
+            .send(f)
             .map_err(|e| Error::new(ErrorKind::ConnectionReset, e))
-            .and_then(|_| {
-                input.filter(|f| f.opcode == OpCode::Close)
+            .and_then(|io| {
+                io.filter(|f| f.opcode == OpCode::Close)
                     .into_future()
                     .map_err(|_| Error::new(ErrorKind::ConnectionReset, "Failed to receive close frame."))
             })
@@ -228,15 +223,15 @@ impl<R, W> Transport<R, W>
         use self::State::*;
 
         match *self.state.as_mut().expect(MISSING_STATE) {
-            Open(_, ref mut output, _, ref mut remaining) => {
+            Open(ref mut io, _, ref mut remaining) => {
                 // If the fragment send did not succeed, the item is stored in `buffered`.
                 while let Some(fgmt) = remaining.buffered.pop_front() {
-                    match output.start_send(fgmt) {
+                    match io.start_send(fgmt) {
                         Ok(AsyncSink::Ready) => {},
                         Ok(AsyncSink::NotReady(fgmt)) => {
                             remaining.buffered.push_front(fgmt);
 
-                            output.poll_complete()?;
+                            io.poll_complete()?;
                             return Ok(Async::NotReady);
                         },
                         Err(err) => return Err(err)
@@ -246,13 +241,13 @@ impl<R, W> Transport<R, W>
                 // Send remaining fragments, if any.
                 if let Some(mut it) = remaining.fragments.take() {
                     while let Some(fgmt) = it.next() {
-                        match output.start_send(fgmt) {
+                        match io.start_send(fgmt) {
                             Ok(AsyncSink::Ready) => {},
                             Ok(AsyncSink::NotReady(fgmt)) => {
                                 remaining.buffered.push_back(fgmt);
                                 remaining.fragments = Some(it);
 
-                                output.poll_complete()?;
+                                io.poll_complete()?;
                                 return Ok(Async::NotReady);
                             },
                             Err(err) => return Err(err)
@@ -260,7 +255,7 @@ impl<R, W> Transport<R, W>
                     }
                 }
 
-                output.poll_complete()
+                io.poll_complete()
             },
             _ => panic!(OP_ON_CLOSED_TP)
         }
@@ -270,9 +265,9 @@ impl<R, W> Transport<R, W>
         use self::State::*;
 
         match *self.state.as_mut().expect(MISSING_STATE) {
-            Open(_, ref mut output, _, ref mut remaining) => {
-                match output.start_send(item)? {
-                    AsyncSink::Ready => output.poll_complete(),
+            Open(ref mut io, _, ref mut remaining) => {
+                match io.start_send(item)? {
+                    AsyncSink::Ready => io.poll_complete(),
                     AsyncSink::NotReady(item) => {
                         remaining.buffered.push_back(item);
                         Ok(Async::NotReady)
@@ -284,9 +279,10 @@ impl<R, W> Transport<R, W>
     }
 }
 
-impl<R, W> Sink for Transport<R, W>
-    where R: 'static + Stream<Item = Frame, Error = Error>,
-          W: 'static + Sink<SinkItem = Frame, SinkError = Error> {
+impl<T> Sink for Transport<T>
+    where T: 'static +
+             Stream<Item = Frame, Error = Error> +
+             Sink<SinkItem = Frame, SinkError = Error> {
     type SinkItem = Frame;
     type SinkError = Error;
 
@@ -310,7 +306,7 @@ impl<R, W> Sink for Transport<R, W>
                 // Always send control frames since they can be interleaved
                 // with fragmented messages.
                 if item.opcode.is_control() {
-                    return self.state.output_mut().start_send(item);
+                    return self.state.io_mut().start_send(item);
                 }
 
                 match self.send_remaining() {
@@ -330,7 +326,7 @@ impl<R, W> Sink for Transport<R, W>
                         Err(err) => Err(err)
                     }
                 } else {
-                    self.state.output_mut().start_send(item)
+                    self.state.io_mut().start_send(item)
                 }
             }
         }
@@ -340,9 +336,9 @@ impl<R, W> Sink for Transport<R, W>
         use self::State::*;
 
         match self.state.take().expect(MISSING_STATE) {
-            Open(input, mut output, recv_fgmts, rem) => {
-                let res = output.poll_complete();
-                self.state = Some(Open(input, output, recv_fgmts, rem));
+            Open(mut io, recv_fgmts, rem) => {
+                let res = io.poll_complete();
+                self.state = Some(Open(io, recv_fgmts, rem));
                 res
             },
             Closing(mut fut) => match fut.poll() {
@@ -367,7 +363,7 @@ impl<R, W> Sink for Transport<R, W>
         use self::State::*;
 
         match *self.state.as_ref().expect(MISSING_STATE) {
-            Open(_, _, _, _) => self.close(CloseCode::Normal),
+            Open(_, _, _) => self.close(CloseCode::Normal),
             Closed => return Err(Error::new(ErrorKind::NotConnected, OP_ON_CLOSED_TP)),
             _ => {}
         }
@@ -376,9 +372,10 @@ impl<R, W> Sink for Transport<R, W>
     }
 }
 
-impl<R, W> Stream for Transport<R, W>
-    where R: 'static + Stream<Item = Frame, Error = Error>,
-          W: 'static + Sink<SinkItem = Frame, SinkError = Error> {
+impl<T> Stream for Transport<T>
+    where T: 'static +
+             Stream<Item = Frame, Error = Error> +
+             Sink<SinkItem = Frame, SinkError = Error> {
     type Item = Frame;
     type Error = Error;
 
@@ -386,7 +383,7 @@ impl<R, W> Stream for Transport<R, W>
         use self::State::*;
 
         let frame = match *self.state.as_mut().expect(MISSING_STATE) {
-            Open(ref mut input, _, _, _) => try_stream_ready!(input.poll()),
+            Open(ref mut io, _, _) => try_stream_ready!(io.poll()),
             Closing(_) => return Ok(Async::NotReady),
             Closed => return Err(Error::new(ErrorKind::NotConnected, OP_ON_CLOSED_TP))
         };
@@ -454,8 +451,8 @@ impl<R, W> Stream for Transport<R, W>
         } else {
             match frame.opcode {
                 OpCode::Close => {
-                    let (_, output) = self.state.into_io();
-                    let fut = output.send(frame)
+                    let io = self.state.into_io();
+                    let fut = io.send(frame)
                         .map(|_| ())
                         .map_err(|e| Error::new(ErrorKind::ConnectionReset, e));
 
@@ -476,13 +473,12 @@ impl<R, W> Stream for Transport<R, W>
     }
 }
 
-impl<R: Debug, W: Debug> Debug for State<R, W> {
+impl<T: Debug> Debug for State<T> {
     fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
         match *self {
-            State::Open(ref r, ref w, ref fgmts, ref rem) => {
+            State::Open(ref io, ref fgmts, ref rem) => {
                 fmt.debug_tuple("Open")
-                    .field(r)
-                    .field(w)
+                    .field(io)
                     .field(fgmts)
                     .field(rem)
                     .finish()
@@ -496,18 +492,18 @@ impl<R: Debug, W: Debug> Debug for State<R, W> {
     }
 }
 
-impl<R, W> TransportState<R, W> for Option<State<R, W>> {
-    fn into_io(&mut self) -> (R, W) {
+impl<T> TransportState<T> for Option<State<T>> {
+    fn into_io(&mut self) -> T {
         match self.take() {
-            Some(State::Open(i, o, _, _)) => (i, o),
+            Some(State::Open(io, _, _)) => io,
             Some(_) => panic!(OP_ON_CLOSED_TP),
             _ => panic!(MISSING_STATE)
         }
     }
 
-    fn output_mut(&mut self) -> &mut W {
+    fn io_mut(&mut self) -> &mut T {
         match *self {
-            Some(State::Open(_, ref mut o, _, _)) => o,
+            Some(State::Open(ref mut io, _, _)) => io,
             Some(_) => panic!(OP_ON_CLOSED_TP),
             _ => panic!(MISSING_STATE)
         }
@@ -515,7 +511,7 @@ impl<R, W> TransportState<R, W> for Option<State<R, W>> {
 
     fn recv_fgmts(&self) -> &[Frame] {
         match *self {
-            Some(State::Open(_, _, ref fgmts, _)) => fgmts,
+            Some(State::Open(_, ref fgmts, _)) => fgmts,
             Some(_) => panic!(OP_ON_CLOSED_TP),
             _ => panic!(MISSING_STATE)
         }
@@ -523,7 +519,7 @@ impl<R, W> TransportState<R, W> for Option<State<R, W>> {
 
     fn recv_fgmts_mut(&mut self) -> &mut Vec<Frame> {
         match *self {
-            Some(State::Open(_, _, ref mut fgmts, _)) => fgmts,
+            Some(State::Open(_, ref mut fgmts, _)) => fgmts,
             Some(_) => panic!(OP_ON_CLOSED_TP),
             _ => panic!(MISSING_STATE)
         }
@@ -531,7 +527,7 @@ impl<R, W> TransportState<R, W> for Option<State<R, W>> {
 
     fn remaining_mut(&mut self) -> &mut Remaining {
         match *self {
-            Some(State::Open(_, _, _, ref mut rem)) => rem,
+            Some(State::Open(_, _, ref mut rem)) => rem,
             Some(_) => panic!(OP_ON_CLOSED_TP),
             _ => panic!(MISSING_STATE)
         }
