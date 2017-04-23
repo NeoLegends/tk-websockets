@@ -8,10 +8,8 @@ use futures::{
     Async, AsyncSink, Poll, StartSend,
     Future, Sink, Stream
 };
-use tokio_io::{AsyncRead, AsyncWrite};
-use tokio_io::codec::Framed;
+use tokio_io::AsyncWrite;
 
-use codec::Codec;
 use message::{CloseCode, Fragments, Frame, OpCode};
 
 const CONTINUE_FRAME_SENT: &'static str = "Sending CONTINUE frames directly is not supported. Fragmenting is done transparently in the background, so there is no need to manually send continue frames.";
@@ -113,22 +111,6 @@ impl Default for Settings {
     }
 }
 
-impl<T: Stream + Sink> Transport<T> {
-    /// Creates a new `Transport` from the given IO primitives with default settings.
-    pub fn new<I>(io: I, is_client: bool) -> Transport<Framed<I, Codec>>
-            where I: 'static + AsyncRead + AsyncWrite {
-        Self::new_with_settings(io, is_client, Default::default())
-    }
-
-    /// Creates a new `Transport` from the given IO primitives with the given settings.
-    pub fn new_with_settings<I>(io: I, is_client: bool, settings: Settings)
-            -> Transport<Framed<I, Codec>>
-            where I: 'static + AsyncRead + AsyncWrite {
-        let codec = Codec::new(is_client, settings.max_message_size);
-        Transport::from_stream_settings(io.framed(codec), settings)
-    }
-}
-
 impl<T: Debug> Debug for Transport<T> {
     fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
         fmt.debug_struct("Transport")
@@ -148,8 +130,8 @@ impl<T> Transport<T>
     /// extension stacks in front of the `Transport`. When creating a
     /// new transport without any extensions, this constructor is simply
     /// passed the `FramedRead` / `FramedWrite`.
-    pub fn from_stream(io: T) -> Self {
-        Self::from_stream_settings(io, Default::default())
+    pub fn new(io: T) -> Self {
+        Self::new_with_settings(io, Default::default())
     }
 
     /// Creates a new `Transport` from the given stream and sink and settings.
@@ -158,7 +140,7 @@ impl<T> Transport<T>
     /// extension stacks in front of the `Transport`. When creating a
     /// new transport without any extensions, this constructor is simply
     /// passed the `FramedRead` / `FramedWrite`.
-    pub fn from_stream_settings(io: T, settings: Settings) -> Self {
+    pub fn new_with_settings(io: T, settings: Settings) -> Self {
         assert!(settings.max_message_size > 0);
 
         let recv_buf = Vec::with_capacity(settings.fragments_buf_size);
