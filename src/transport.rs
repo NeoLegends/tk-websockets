@@ -12,6 +12,8 @@ use tokio_io::AsyncWrite;
 
 use message::{CloseCode, Fragments, Frame, OpCode};
 
+const INITIAL_BUF_CAP: usize = 16;
+
 const CONTINUE_FRAME_SENT: &'static str = "Sending CONTINUE frames directly is not supported. Fragmenting is done transparently in the background, so there is no need to manually send continue frames.";
 const MISSING_STATE: &'static str = "Missing transport state. This is a bug. Please contact the authors of tk-websocket.";
 const OP_ON_CLOSED_TP: &'static str = "Operation performed on closed or closing transport";
@@ -30,12 +32,6 @@ macro_rules! try_stream_ready {
 /// Settings for building up a `Transport`.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Settings {
-    /// The number of fragmented websocket frames a `Transport` can
-    /// buffer without reallocating.
-    ///
-    /// Default: 8
-    pub fragments_buf_size: usize,
-
     /// The maximum size of outgoing frames. Frames larger than this will
     /// be fragmented.
     ///
@@ -104,7 +100,6 @@ trait TransportState<T> {
 impl Default for Settings {
     fn default() -> Self {
         Settings {
-            fragments_buf_size: 8,
             max_message_size: 1024 * 1024 * 16,
             fragment_size: u16::max_value() as usize
         }
@@ -143,8 +138,8 @@ impl<T> Transport<T>
     pub fn new_with_settings(io: T, settings: Settings) -> Self {
         assert!(settings.max_message_size > 0);
 
-        let recv_buf = Vec::with_capacity(settings.fragments_buf_size);
-        let send_buf = VecDeque::with_capacity(settings.fragments_buf_size);
+        let recv_buf = Vec::with_capacity(INITIAL_BUF_CAP);
+        let send_buf = VecDeque::with_capacity(INITIAL_BUF_CAP);
         let remaining = Remaining {
             buffered: send_buf,
             fragments: None
