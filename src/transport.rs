@@ -315,10 +315,9 @@ impl<T> Sink for Transport<T>
         use self::State::*;
 
         match self.state.take().expect(MISSING_STATE) {
-            Open(mut io, recv_fgmts, rem) => {
-                let res = io.poll_complete();
+            Open(io, recv_fgmts, rem) => {
                 self.state = Some(Open(io, recv_fgmts, rem));
-                res
+                self.send_remaining()
             },
             Closing(mut fut) => match fut.poll() {
                 Ok(Async::Ready(_)) => {
