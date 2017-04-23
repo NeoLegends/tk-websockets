@@ -585,8 +585,7 @@ impl Frame {
 
         if mask {
             // We'd like to keep the &self bound for ::write. This means we need to
-            // allocate here, since we cannot modify the internal buffer to apply
-            // the masking.
+            // copy the data of the internal buffer to apply the masking.
             //
             // To optimize the process a little and in order to avoid allocating
             // excessive amounts of memory, we're using a 8kb temporary buffer.
@@ -598,18 +597,15 @@ impl Frame {
             let mask: [u8; 4] = rand::random();
             w.write_all(&mask)?;
 
-            // Don't overallocate
-            let capacity = min!(self.payload.len(), BUFFER_SIZE);
-            let mut buf = Vec::with_capacity(capacity);
+            let mut buf = [0; BUFFER_SIZE];
 
-            // Since were &self, we could try to use something like rayon here...
-            for ch in (&self.payload[..]).chunks(capacity) {
-                buf.extend_from_slice(ch);
+            // Since we're &self, we could try to use something like rayon here...
+            for ch in (&self.payload[..]).chunks(BUFFER_SIZE) {
+                let mut buf = &mut buf[..ch.len()];
+                buf.copy_from_slice(ch);
 
                 apply_mask(&mut buf, &mask);
                 w.write_all(&buf)?;
-
-                buf.clear();
             }
 
             Ok(())
