@@ -269,9 +269,9 @@ impl<T> Sink for Transport<T>
         use self::State::*;
 
         match *self.state.as_ref().expect(MISSING_STATE) {
+            Open(_, _, _) => {},
             Closing(_) => return Ok(AsyncSink::NotReady(item)),
-            Closed => return Err(Error::new(ErrorKind::NotConnected, OP_ON_CLOSED_TP)),
-            _ => {}
+            Closed => return Err(Error::new(ErrorKind::NotConnected, OP_ON_CLOSED_TP))
         }
 
         match item.opcode {
