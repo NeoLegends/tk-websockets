@@ -208,8 +208,9 @@ impl<T> Transport<T>
                         Ok(AsyncSink::NotReady(fgmt)) => {
                             remaining.buffered.push_front(fgmt);
 
-                            io.poll_complete()?;
-                            return Ok(Async::NotReady);
+                            if io.poll_complete()? == Async::NotReady {
+                                return Ok(Async::NotReady);
+                            }
                         },
                         Err(err) => return Err(err)
                     }
@@ -222,10 +223,11 @@ impl<T> Transport<T>
                             Ok(AsyncSink::Ready) => {},
                             Ok(AsyncSink::NotReady(fgmt)) => {
                                 remaining.buffered.push_back(fgmt);
-                                remaining.fragments = Some(it);
 
-                                io.poll_complete()?;
-                                return Ok(Async::NotReady);
+                                if io.poll_complete()? == Async::NotReady {
+                                    remaining.fragments = Some(it);
+                                    return Ok(Async::NotReady);
+                                }
                             },
                             Err(err) => return Err(err)
                         }
