@@ -8,7 +8,6 @@ use futures::{
     Async, AsyncSink, Poll, StartSend,
     Future, Sink, Stream
 };
-use tokio_io::AsyncWrite;
 
 use message::{CloseCode, Fragments, Frame, OpCode};
 
