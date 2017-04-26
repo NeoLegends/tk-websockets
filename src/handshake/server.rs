@@ -3,13 +3,14 @@ use std::io::{Error, ErrorKind};
 use std::str;
 
 use base64;
+use bufstream::BufStream;
 use futures::{Future, Poll};
 use sha1;
 use tokio_io::{AsyncRead, AsyncWrite};
-use tokio_io::codec::Framed;
 use tokio_io::io as tk_io;
 
 use codec::Codec;
+use handshake::http::{ParseRequest, Response};
 use transport::Settings;
 
 /// Asynchronously accepts a websocket connection on the given socket.
@@ -22,7 +23,7 @@ pub fn accept<T>(io: T, cfg: &Settings) -> Accept<T>
     assert!(cfg.max_message_size > 0);
 
     let max_size = cfg.max_message_size;
-    let fut = super::ParseRequest::new(io)
+    let fut = ParseRequest::new(BufStream::new(io))
         .and_then(|(io, req)| {
             if &req.method != "GET" {
                 return Err(Error::new(ErrorKind::InvalidData, "Request method not GET"));
@@ -66,7 +67,7 @@ pub fn accept<T>(io: T, cfg: &Settings) -> Accept<T>
             }
         })
         .and_then(|(io, key)| {
-            let mut resp = super::Response {
+            let mut resp = Response {
                 code: 101,
                 headers: Vec::new()
             };
@@ -77,7 +78,8 @@ pub fn accept<T>(io: T, cfg: &Settings) -> Accept<T>
 
             tk_io::write_all(io, resp.to_string())
         })
-        .map(move |(io, _)| io.framed(Codec::new(false, max_size)));
+        .map(move |(io, _)| io.framed(Codec::new(false, max_size)))
+        .map(|framed| super::WebSocket(framed));
 
     Accept(Box::new(fut))
 }
@@ -102,10 +104,10 @@ fn format_nonce_resp(nonce: &str) -> String {
 /// currently necessary for getting a clean type out of the `accept`
 /// function.
 #[must_use = "futures do nothing unless polled"]
-pub struct Accept<T>(Box<Future<Item = Framed<T, Codec>, Error = Error>>);
+pub struct Accept<T: AsyncRead + AsyncWrite>(Box<Future<Item = super::WebSocket<T>, Error = Error>>);
 
-impl<T> Future for Accept<T> {
-    type Item = Framed<T, Codec>;
+impl<T: AsyncRead + AsyncWrite> Future for Accept<T> {
+    type Item = super::WebSocket<T>;
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {

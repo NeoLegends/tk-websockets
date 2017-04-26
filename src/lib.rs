@@ -5,6 +5,7 @@
 #![deny(bad_style, missing_docs)]
 
 extern crate base64;
+extern crate bufstream;
 extern crate bytes;
 #[macro_use] extern crate futures;
 extern crate httparse;

@@ -3,15 +3,16 @@ use std::io::{Error, ErrorKind};
 use std::str;
 
 use base64;
+use bufstream::BufStream;
 use futures::{Future, Poll};
 use rand::{self, Rng};
 use sha1;
 use tokio_io::{AsyncRead, AsyncWrite};
-use tokio_io::codec::Framed;
 use tokio_io::io as tk_io;
 use url::Url;
 
 use codec::Codec;
+use handshake::http::{ParseResponse, Request};
 use transport::Settings;
 
 /// Asynchronously performs the websocket handshake on the given connection.
@@ -28,7 +29,7 @@ pub fn connect<T>(io: T, url: &Url, cfg: &Settings) -> Client<T>
     let req = format_http_request(&url, &nonce);
 
     let fut = tk_io::write_all(io, req.to_string().into_bytes())
-        .and_then(|(io, _)| super::ParseResponse::new(io))
+        .and_then(|(io, _)| ParseResponse::new(BufStream::new(io)))
         .and_then(move |(io, res)| {
             if res.code != 101 {
                 return Err(Error::new(ErrorKind::InvalidData, "Response status code not 101"));
@@ -81,13 +82,14 @@ pub fn connect<T>(io: T, url: &Url, cfg: &Settings) -> Client<T>
 
             Ok(io)
         })
-        .map(move |io| io.framed(Codec::new(true, max_size)));
+        .map(move |io| io.framed(Codec::new(true, max_size)))
+        .map(|framed| super::WebSocket(framed));
 
     Client(Box::new(fut))
 }
 
 /// Creates the HTTP request used to start up a websocket connection.
-fn format_http_request(url: &Url, nonce: &[u8]) -> super::Request {
+fn format_http_request(url: &Url, nonce: &[u8]) -> Request {
     assert_eq!(nonce.len(), 16);
 
     let domain = url.host_str().expect("missing domain");
@@ -100,7 +102,7 @@ fn format_http_request(url: &Url, nonce: &[u8]) -> super::Request {
         domain.to_owned()
     };
 
-    let mut req = super::Request {
+    let mut req = Request {
         method: "GET".to_owned(),
         headers: Vec::new(),
         path: path.to_owned(),
@@ -141,10 +143,10 @@ fn validate_nonce(nonce: &[u8], response: &str) -> bool {
 /// currently necessary for getting a clean type out of the `connect`
 /// function.
 #[must_use = "futures do nothing unless polled"]
-pub struct Client<T>(Box<Future<Item = Framed<T, Codec>, Error = Error>>);
+pub struct Client<T: AsyncRead + AsyncWrite>(Box<Future<Item = super::WebSocket<T>, Error = Error>>);
 
-impl<T> Future for Client<T> {
-    type Item = Framed<T, Codec>;
+impl<T: AsyncRead + AsyncWrite> Future for Client<T> {
+    type Item = super::WebSocket<T>;
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
