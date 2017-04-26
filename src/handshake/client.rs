@@ -159,13 +159,21 @@ mod tests {
     use super::*;
 
     use std::net::TcpStream;
+    use std::sync::Mutex;
 
+    use futures::{Sink, Stream};
     use tokio_core::net::TcpStream as TkTcpStream;
     use tokio_core::reactor::Core;
 
+    use message::{Frame, OpCode};
+
+    const TEXT: &'static str = "Hello, World!";
+
     #[test]
     fn smoke_remote() {
+        let confirm = Mutex::new(false);
         let mut core = Core::new().expect("failed to create reactor");
+
         let stream = TcpStream::connect("echo.websocket.org:80")
             .expect("failed to connect TCP stream");
         let stream = TkTcpStream::from_stream(stream, &core.handle())
@@ -174,9 +182,40 @@ mod tests {
 
         let fut = connect(stream, &url, &Default::default())
             .map(|_| ())
-            .map_err(|e| println!("Error: {}", e));
+            .map_err(|e| println!("Error: {}", e))
+            .map(|_| *confirm.lock().unwrap() = true);
 
         core.run(fut).expect("failed to connect");
+        assert!(*confirm.lock().unwrap(), "Connection didn't run.");
+    }
+
+    #[test]
+    fn smoke_remote_msg() {
+        let confirm = Mutex::new(false);
+        let mut core = Core::new().expect("failed to create reactor");
+
+        let stream = TcpStream::connect("echo.websocket.org:80")
+            .expect("failed to connect TCP stream");
+        let stream = TkTcpStream::from_stream(stream, &core.handle())
+            .expect("failed to asyncify stream");
+        let url = "ws://echo.websocket.org".parse().expect("failed to parse url");
+
+        let fut = connect(stream, &url, &Default::default())
+            .and_then(|conn| conn.send(Frame::new_text(TEXT.to_owned())))
+            .and_then(|conn| conn.into_future().map_err(|(e, _)| e))
+            .map(|(maybe_item, _)| {
+                let resp = maybe_item.expect("Missing element!");
+                assert_eq!(resp.opcode, OpCode::Text);
+
+                let contents = resp.read_utf8().expect("Failed to parse UTF-8 data!");
+                assert_eq!(contents, TEXT);
+            })
+            .map(|_| ())
+            .map_err(|e| println!("Error: {}", e))
+            .map(|_| *confirm.lock().unwrap() = true);
+
+        core.run(fut).expect("failed to connect");
+        assert!(*confirm.lock().unwrap(), "Connection didn't run.");
     }
 
     #[test]
